@@ -1,0 +1,199 @@
+Fluxo da arquitetura - Gravação
+
+Camada da API -> negócio -> data 
+Data -> negócio -> API
+
+Camada de negócio valida erros, busca no banco etc.
+
+Camada de negócio não retorna erros (exceptions etc.), mas sim eventos
+que serão lidos pela camada da API. 
+
+Os eventos de erros são válidos durante cada requisição.
+
+Os eventos são pegos por qualquer camada da aplicação
+via injeção de dependência.
+
+A aplicação vai retornar 400 em caso de erro.
+
+*** Na implementação atual:
+Ao buscar  por fornecedor o controller (API) usa o repositório diretamente
+Ao Cadastrar fornecedor é usado o serviço (camada negócio)
+O serviço faz validações no dado de entrada antes de cadastrar.
+
+** Antes de fazer a prova revisar o "Modelando a controller de Fornecedores"
+pois tem que rever sobre as validações de erros etc.
+
+Validação com FluentValidation
+
+A validação personalizada não funciona se a padrão estiver habilitada. 
+Nesse caso, a padrão é usada (dataanotation)
+Para habilitar a personalizada, tem que ir no startup e no ConfigureServices,
+e add services.Configure<APIBehaviorOptions>(options => {options.SuppressModelStateInvalidFilter = true})
+
+Padronizar os erros garante que o front não fiquei busca por erros diferentes
+
+AS camadas tem acesso ao notificador de erros pois ele está injetado (injeção de dependência)
+e também os injetores estão em modo Scoped, ou seja, validos durante o request. 
+No caso atual, a camada de negócio está enviando os erros e a camada da API
+está capturando.
+
+O IFormFile trabalha por stream, ou seja, um fluxo enviando os bytes como
+um vídeo do youtube. Porém ele não ultrapassa o limite exigido, que é maior
+do que o de stringbase64 comum.
+
+Para aumentar o limite do IFormFile tem que usar o dataannotation 
+[DisableRequestSizeLimit(1000 ou X qualquer)] no controller
+
+IFormFile é do tipo FormData na requisição ([FromForm])
+
+Se o controller receber um IFormFile junto com mais campos em Json,
+vai lançar erro. Porém se receber só o IFormFile não terá problema.
+Para resolver isso basta usar o ModelBinder (lib externa) e decorar a sua
+viewModel com esse DataAnnotation. Assim, o corpo da request deve ser enviado
+por FormData
+
+
+Identity já cria e manipula as tabelas de usuários e login. Cria tudo sozinho.
+Ele também manipula criptografia e segurança para X tentativas de login errado e coloca
+o usuário em modo de espera por 5 min por padrão.
+
+O JWT tem:
+ IssuerSigninKey = chave de criptografia de acordo com sua chave de segurança SENHASUPERSECRETA
+2 - VAlidateIssuer = true,
+ValidateAudience = true,
+ValidAudience = URL que sua aplicação é válida
+ValidIssuer = nome do Emissor (ex. MinhaAplicacao)
+
+* se alterar no token o valid audience ou o validIssuer, mesmo que a chave de criptografia seja a mesma,
+o asp.net detecta mudança e válida os dois (permite ou não)
+
+Inversão de dependência é quando se usa um dependencia para usar outra. 
+O Objetivo é evitar acoplament. Aula Interagindo com o usuário logado de qualquer camada
+Foi usada para obter dados do contexto de login, onde foi usada a 
+interface IHttpContextAccessor do asp.net no controller da classe criada.
+
+Https = http passando por um túnel de ssl
+Https é obrigatório nos dias atuais.
+Não usar o https coloca sua aplicação em risco do ataque Man in the middle
+
+Para usar Https no asp.net basta usar dois recursos 
+ 1 - Startup, método configure, use app.UseHsts(); HSTS só funciona se o browser enviar em https, caso contrario ele não vai funcionar em https, mas sim em http
+ 2 - app.UseHttpsRedirection(). Ele força o browser a enviar https. Portanto, o hsts é usado
+
+CORS = compartilhamento de recursos entre domínios diferentes, ou seja, permitir
+contato entre duas aplicaçoes mesmo que o domínio (origem) seja diferente da do servidor
+onde sua aplicação está hospedada.
+Ele já especifica headers que compartilhamento entre os domínios.
+
+O Cors já é configurado no browser. O Postman não.
+O ASP.net por padrão nega qualquer política de fora (não permtir). Teria que habilitar o cors no ConfigureService ou no Configure da Startup
+O Cors não é um recurso de segurança. Ele é usado para relaxar a segurança, pois ele permite o acesso entre domínios diferentes.
+
+
+** Versionamento
+
+Deve-se pensar em versionamento antes do inicio do projeto
+
+breakchange - sempre deve pensar em versionar a API
+
+O versionamento serve para que possa ser possível rapidamente mudar o negócio
+e dar tempo de quem usa a versão anterior para migrar para a nova versão.
+O Objetivo não é ter várias versoes, mas sim apenas uma. A antiga deve ter
+prazo de finalização.
+
+Pacotes: 
+1 - Microsoft.AspNetCore.MVC.Versioning = faz o versionamento
+2 - Microsoft.AspNetCore.MVC.Versioning.APIExplorer - para as documentações entenderem o versionamento
+
+Add os seguintes códigos no Startup -> ConfigureServices
+services.AddApiVersioning(options =>
+{
+options.AssumeDefaultVersionWhenUnspecified = true;
+options.DefaultApiVersion = new ApiVersion(1, 0);
+options.ReportApiVersions = true; // retornar um header no response dizendo sobre as versões suportadas e não suportadas
+}
+
+services.AddVersionedApiExplorer(options => 
+{
+ options.GroupNameFormat = "'v'VVV";
+options.SubstituteApiVerionInUrl = true;// redireciona o usuário  para a url versionada
+}
+
+Add nas controles:
+add na classe [ApiVersion("1.0")]
+Add nas routas api/v{version:apiVersion}/fornecedores 
+
+
+Swagger:
+ConfigureServices
+add services.AddSwaggerGen(...)
+
+Configure
+Add app.UseSwagger()
+app.UseSwaggerUI(...)
+
+
+Logging:
+
+Logger é importante pois ele sinaliza quando a aplicação está com problema
+bem como nos mostrar informações durante a execução. Erros e desempenho.
+
+Existem 6 tipos de logs:
+Trace <- e desabilidade por padrao
+Debug
+Information
+Warning
+Error
+Critical
+
+Os dois primeiros devem ser usados para debug, os outros em produção
+
+Tem que passar o tipo da classe ao injetar o log no construtor
+ex.: ILogger<Classe> logger ou resolver o tipo manualmente.
+
+Serviço online para Log: elmah.io
+
+Elmah pega as informações do pipeline, não do logs inseridos manualmente nas controllers
+mas tem como fazer ele se integrar usando seu provider com os logs do asp.net core
+e aparecer todos eles na dashboard do elmah.io.
+Para isso, tem que instalar o Elmah.Io.Extensions.Logging
+
+Add só elmar: service.AddElmahIo(...)
+Add provider para integração com asp.net core: services.AddLogging(...
+builder.addFilter<ElmahLoggerProvider>(null, logLvel.warning));
+
+Para enviar o erro específico para o Elmar.io basta add ex.ship(ex) no catch dos controllers.
+Assim não precisar usar a segunda configuração que instalar o segundo pacote acima. 
+Basta usar a config padrão do Elmar.
+
+Se tentar lançar um erro Throw new Exception manualmente o elmar.io nao vai receber.
+
+Boa abordagem é criar um middware para add o envio de erros para o elmar.io
+para isso basta dentro do middware e catch(ex) {ex.shipasync(context)}. E add o 
+middware dentro do services.addMiddware no startup.
+Usando essa abordagem ele envia todos os erros, inclusive os lançados manualmente throw new exception()
+
+Middlware simples com no primeiro curso.
+
+
+HealthChecks
+
+
+para Add basta ir:
+1 - no ConfigureService e service.AddHealthChecks();
+2 - no Configure e add service.UseHealthChecks("hc");
+
+Ele pode monitorar o que quiser.
+
+Para monitorar BD tem que instalar o AspNetCore.HealthChecks.SqlServer e ir no service.AddHealthChecks().addSqlServer(...)
+
+Ele tem uma UI: 
+
+1 - services.AddHealthChecksUI() e services.UseHealthChecksUI(options.UiPath = "/api/hc-ui");
+2 - no ConfigureService e service.AddHealthChecks();
+
+É possível integrar o Elmar com o healthChecks. Basta instalar
+o pacote do elmar para o helthchecks.
+
+
+
